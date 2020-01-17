@@ -12,21 +12,34 @@
 #include <PS2X_lib.h>
 #include <Wire.h>
 
-#define PS2_DAT               A2
-#define PS2_CMD               A1
-#define PS2_SEL               A0
-#define PS2_CLK               A3
+#define PS2_DAT A2
+#define PS2_CMD A1
+#define PS2_SEL A0
+#define PS2_CLK A3
 
-#define PORT_B  0
-#define PORT_C  1
-#define PORT_D  2
-#define PORT_E  3
+#define PORT_B 0
+#define PORT_C 1
+#define PORT_D 2
+#define PORT_E 3
 
+#define SECONDARY_MAPPING_COMBO_HOLD_MILLIS 300
 
 typedef struct {
   byte port;
   byte num;
 } pin;
+
+typedef struct {
+  pin pin;
+  unsigned int buttonA;
+  unsigned int buttonB;
+} pinButtonMapping;
+
+typedef struct {
+  unsigned int buttonA;
+  unsigned int buttonB;
+  unsigned long pressedMillis;
+} buttonCombo;
 
 const pin upPin = { PORT_D, 1 };
 const pin downPin = { PORT_D, 2 };
@@ -45,13 +58,6 @@ const pin homePin = { PORT_D, 7 };
 const pin videoPin = { PORT_D, 6 };
 const pin startPin = { PORT_B, 7 };
 const pin selectPin = { PORT_D, 5 };
-
-
-typedef struct {
-  pin pin;
-  unsigned int buttonA;
-  unsigned int buttonB;
-} pinButtonMapping;
 
 const pinButtonMapping primaryMappings[] = {
   { upPin, PSB_PAD_UP },
@@ -78,9 +84,13 @@ const pinButtonMapping secondaryMappings[] = {
 };
 const byte secondaryMappingsSize = sizeof(secondaryMappings) / sizeof(pinButtonMapping);
 
+const buttonCombo secondaryMappingCombo = { PSB_L2, PSB_R2 };
+
 
 PS2X ps2x;
-byte ps2xError = 1; // starts at 1 to trigger the first connection attempt
+byte ps2xError = 1; // starts as 1 to trigger the initial connection attempt
+pinButtonMapping *currentMapping = &primaryMappings;
+byte currentMappingSize = primaryMappingsSize;
 
 byte potX = 0;
 byte potY = 0;
@@ -103,12 +113,29 @@ void setup() {
 void loop() {
   ps2x.read_gamepad();
 
-  updateButtons(primaryMappings, primaryMappingsSize);
-  updateAnalog();
+  updateButtonMapping();
+
+  updateButtons(currentMapping, currentMappingSize);
+  updateLeftAnalog();
 
   delay(2);
 }
 
+void updateButtonMapping() {
+  if (ps2x.Button(secondaryMappingCombo.buttonA) && ps2x.Button(secondaryMappingCombo.buttonB)){
+    if (!secondaryMappingCombo.pressedMillis) { secondaryMappingCombo.pressedMillis = millis(); }
+  } else {
+    secondaryMappingCombo.pressedMillis = 0;
+  }
+
+  if (secondaryMappingCombo.pressedMillis && (millis() - secondaryMappingCombo.pressedMillis > SECONDARY_MAPPING_COMBO_HOLD_MILLIS)){
+    currentMapping = &secondaryMappings;
+    currentMappingSize = secondaryMappingsSize;
+  } else {
+    currentMapping = &primaryMappings;
+    currentMappingSize = primaryMappingsSize;
+  }
+}
 
 void updateButtons(pinButtonMapping mapping[], byte mappingSize){
   for (byte i = 0; i < mappingSize; i++){
@@ -158,7 +185,7 @@ void releasePin(pin* pin){
   }
 }
 
-void updateAnalog(){
+void updateLeftAnalog(){
   potX = ps2x.Analog(PSS_LX);
   potY = ps2x.Analog(PSS_LY);
   if ((potX != lastPotX) || (potY != lastPotY)) {
