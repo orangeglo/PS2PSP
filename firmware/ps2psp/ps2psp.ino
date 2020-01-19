@@ -2,21 +2,24 @@
  * PS2 to PSP Arduino Firmware
  * 
  * TODO
- * - Add stick deadzones
- * - Revisit "pressed" optimaztion so I'm not writing button state every loop
- * - Add right stick modes
- * - save stick mode to eeprom
+ * Add switchable modes to right stick (off, threshold, smoothed)
+ * Try scaling left analog stick
+ * Reconsider key combos & mapping switching
+ * Reconsider caching button presses each loop
  */
 
 #include <Wire.h>
 #include <PS2X_lib.h>
-PS2X ps2x;
+
 
 // PS2 Controller //////////////////
 #define PS2_DAT A2
 #define PS2_CMD A1
 #define PS2_SEL A0
 #define PS2_CLK A3
+
+PS2X ps2x;
+byte ps2xError = 1; // starts as 1 to trigger the initial connection attempt
 
 
 // PSP Button Pins //////////////////
@@ -49,9 +52,66 @@ pin videoPin = { PORT_D, 6 };
 pin startPin = { PORT_B, 7 };
 pin selectPin = { PORT_D, 5 };
 
+void pressPin(pin* pin){
+  pin->pressed = true;
+
+  switch(pin->port){
+    case PORT_B:
+      DDRB = DDRB | (1 << pin->num);
+      PORTB = PORTB & ~(1 << pin->num);
+      break;
+    case PORT_C:
+      DDRC = DDRC | (1 << pin->num);
+      PORTC = PORTC & ~(1 << pin->num);
+      break;
+    case PORT_D:
+      DDRD = DDRD | (1 << pin->num);
+      PORTD = PORTD & ~(1 << pin->num);
+      break;
+    case PORT_E:
+//      DDRE = DDRE | (1 << pin->num);
+//      PORTE = PORTE & ~(1 << pin->num);
+      break;
+  }
+}
+
+void releasePin(pin* pin){
+  switch(pin->port){
+    case PORT_B:
+      DDRB = DDRB & ~(1 << pin->num);
+      break;
+    case PORT_C:
+      DDRC = DDRC & ~(1 << pin->num);
+      break;
+    case PORT_D:
+      DDRD = DDRD & ~(1 << pin->num);
+      break;
+    case PORT_E:
+//      DDRE = DDRE & ~(1 << pin->num);
+      break;
+  }
+}
+
+void resetPinPressed() {
+  for(byte i = 0; i < currentMappingSize; i++){
+    currentMapping[i].pin->pressed = false;
+  }
+}
+
+void releaseUnusedPins(){
+  for(byte i = 0; i < currentMappingSize; i++){
+    if (!(currentMapping[i].pin->pressed)){
+      releasePin(currentMapping[i].pin);
+    }
+  }
+}
+
 
 // Button Mappings ///////////////////
 #define SECONDARY_MAPPING_COMBO_HOLD_MILLIS 250
+
+pinButtonMapping *currentMapping = primaryMappings;
+byte currentMappingSize = primaryMappingsSize;
 
 typedef struct {
   pin* pin;
@@ -92,119 +152,15 @@ const byte secondaryMappingsSize = sizeof(secondaryMappings) / sizeof(pinButtonM
 
 buttonCombo secondaryMappingCombo = { PSB_L2, PSB_R2 };
 
-
-// Analog Sticks ////////////////////
-#define STICK_DEADZONE 45
-//
-//typedef struct {
-//  byte val;
-//  byte center;
-//  byte lowThreshold;
-//  byte highThreshold;
-//} axis;
-//
-//typedef struct {
-//  axis xAxis;
-//  axis yAxis;
-//} analogStick;
-
-
-int magnitude(int x, int y) {
-  return sqrt((pow(x, 2)+pow(y, 2)));
-}
-
-//analogStick leftAnalog;
-//analogStick rightAnalog;
-
-void updateLeftAnalog(){
-  if (magnitude(ps2x.Analog(PSS_LX) - 127, ps2x.Analog(PSS_LY) - 127) > STICK_DEADZONE){
-    setPot(ps2x.Analog(PSS_LX), ps2x.Analog(PSS_LY));
-  } else {
-    centerPot();
+void updateButtons(pinButtonMapping mapping[], byte mappingSize){
+  for (byte i = 0; i < mappingSize; i++){
+    if (ps2x.Button(mapping[i].buttonA) || (mapping[i].buttonB && ps2x.Button(mapping[i].buttonB))) {
+      pressPin(mapping[i].pin);
+    }
   }
 }
 
-double rightAnalogAngle;
-void updateRightAnalog(){
-  // map angle to 8 directions
-  if (magnitude(ps2x.Analog(PSS_RX) - 127, ps2x.Analog(PSS_RY) - 127) > STICK_DEADZONE){
-    rightAnalogAngle = atan2(ps2x.Analog(PSS_RY) - 127, ps2x.Analog(PSS_RX) - 127);
-    if (rightAnalogAngle < 0) { rightAnalogAngle += 6.2832; }
-
-    if (rightAnalogAngle >= 0.3972 && rightAnalogAngle <= 1.1781){ pressPin(&crossPin); pressPin(&circlePin); } // up right
-    else if (rightAnalogAngle >= 1.1781 && rightAnalogAngle <= 1.9635){ pressPin(&crossPin); } // up
-    else if (rightAnalogAngle >= 1.9635 && rightAnalogAngle <= 2.7489){ pressPin(&crossPin); pressPin(&squarePin); } // up left
-    else if (rightAnalogAngle >= 2.7489 && rightAnalogAngle <= 3.5343){ pressPin(&squarePin); } // left
-    else if (rightAnalogAngle >= 3.5343 && rightAnalogAngle <= 4.3197){ pressPin(&trianglePin); pressPin(&squarePin); } // down left
-    else if (rightAnalogAngle >= 4.3197 && rightAnalogAngle <= 5.1051){ pressPin(&trianglePin); } // down
-    else if (rightAnalogAngle >= 5.1051 && rightAnalogAngle <= 5.8905){ pressPin(&trianglePin); pressPin(&circlePin); } // down right
-    else if (rightAnalogAngle >= 5.8905 || rightAnalogAngle <= 0.3972){ pressPin(&circlePin); } // right
-  }
-}
-
-//void calibrateSticks(){ 
-//  calibrateAxis(&leftAnalog.xAxis, PSS_LX);
-//  calibrateAxis(&leftAnalog.yAxis, PSS_LY);
-//  calibrateAxis(&rightAnalog.xAxis, PSS_RX);
-//  calibrateAxis(&rightAnalog.yAxis, PSS_RY);
-//}
-//
-//void calibrateAxis(axis* analogAxis, unsigned int ps2xAxis) {
-//  analogAxis->center = ps2x.Analog(ps2xAxis);
-//  analogAxis->lowThreshold = analogAxis->center - STICK_DEADZONE;
-//  analogAxis->highThreshold = analogAxis->center + STICK_DEADZONE;
-//}
-
-void centerPot(){
-  setPot(128, 128); 
-}
-
-void setPot(byte x, byte y){
-  Wire.beginTransmission(B0101000);
-  Wire.write(B10101001);
-  Wire.write(0xFF - y);
-  Wire.write(0xFF - x);
-  Wire.endTransmission();
-}
-
-
-// Other Globals ////////////////////
-byte ps2xError = 1; // starts as 1 to trigger the initial connection attempt
-pinButtonMapping *currentMapping = primaryMappings;
-byte currentMappingSize = primaryMappingsSize;
-
-
-
-void setup() {
-//  Serial.begin(57600);
-  Wire.begin();
-
-  centerPot();
-
-  while (ps2xError) {
-    delay(300);
-    ps2xError = ps2x.config_gamepad(PS2_CLK, PS2_CMD, PS2_SEL, PS2_DAT, false, false);
-  }
-
-//  calibrateSticks();
-}
-
-void loop() {
-  ps2x.read_gamepad();
-
-  updateButtonMapping();
-  resetPinStates();
-
-  updateButtons(currentMapping, currentMappingSize);
-  updateLeftAnalog();
-  updateRightAnalog();
-
-  releaseUnusedPins();
-
-  delay(2);
-}
-
-void updateButtonMapping() {
+void updateCurrentMapping() {
   if (ps2x.Button(secondaryMappingCombo.buttonA) && ps2x.Button(secondaryMappingCombo.buttonB)){
     if (!secondaryMappingCombo.pressedMillis) { secondaryMappingCombo.pressedMillis = millis(); }
   } else {
@@ -220,64 +176,77 @@ void updateButtonMapping() {
   }
 }
 
-void resetPinStates() {
-  for(byte i = 0; i < currentMappingSize; i++){
-    currentMapping[i].pin->pressed = false;
+
+// Analog Sticks ////////////////////
+#define STICK_DEADZONE 45
+
+double rightAnalogAngle;
+byte rightAnalogMode = 0;
+
+int magnitude(int x, int y) {
+  return sqrt((pow(x, 2)+pow(y, 2)));
+}
+
+void updateLeftAnalog(){
+  if (magnitude(ps2x.Analog(PSS_LX) - 127, ps2x.Analog(PSS_LY) - 127) > STICK_DEADZONE){
+    setPot(ps2x.Analog(PSS_LX), ps2x.Analog(PSS_LY));
+  } else {
+    centerPot();
   }
 }
 
-void releaseUnusedPins(){
-  for(byte i = 0; i < currentMappingSize; i++){
-    if (!(currentMapping[i].pin->pressed)){
-      releasePin(currentMapping[i].pin);
-    }
+void updateRightAnalog(){
+  if (magnitude(ps2x.Analog(PSS_RX) - 127, ps2x.Analog(PSS_RY) - 127) > STICK_DEADZONE){
+    rightAnalogAngle = atan2(ps2x.Analog(PSS_RY) - 127, ps2x.Analog(PSS_RX) - 127);
+    if (rightAnalogAngle < 0) { rightAnalogAngle += 6.2832; }
+
+    if (rightAnalogAngle >= 0.3972 && rightAnalogAngle <= 1.1781){ pressPin(&crossPin); pressPin(&circlePin); } // up right
+    else if (rightAnalogAngle >= 1.1781 && rightAnalogAngle <= 1.9635){ pressPin(&crossPin); } // up
+    else if (rightAnalogAngle >= 1.9635 && rightAnalogAngle <= 2.7489){ pressPin(&crossPin); pressPin(&squarePin); } // up left
+    else if (rightAnalogAngle >= 2.7489 && rightAnalogAngle <= 3.5343){ pressPin(&squarePin); } // left
+    else if (rightAnalogAngle >= 3.5343 && rightAnalogAngle <= 4.3197){ pressPin(&trianglePin); pressPin(&squarePin); } // down left
+    else if (rightAnalogAngle >= 4.3197 && rightAnalogAngle <= 5.1051){ pressPin(&trianglePin); } // down
+    else if (rightAnalogAngle >= 5.1051 && rightAnalogAngle <= 5.8905){ pressPin(&trianglePin); pressPin(&circlePin); } // down right
+    else if (rightAnalogAngle >= 5.8905 || rightAnalogAngle <= 0.3972){ pressPin(&circlePin); } // right
   }
 }
 
-void updateButtons(pinButtonMapping mapping[], byte mappingSize){
-  for (byte i = 0; i < mappingSize; i++){
-    if (ps2x.Button(mapping[i].buttonA) || (mapping[i].buttonB && ps2x.Button(mapping[i].buttonB))) {
-      pressPin(mapping[i].pin);
-    }
+void setPot(byte x, byte y){
+  Wire.beginTransmission(B0101000);
+  Wire.write(B10101001);
+  Wire.write(0xFF - y);
+  Wire.write(0xFF - x);
+  Wire.endTransmission();
+}
+
+void centerPot(){
+  setPot(127, 127);
+}
+
+
+// Setup & Loop //////////////////////////
+
+void setup() {
+//  Serial.begin(57600);
+  Wire.begin();
+  centerPot();
+
+  while (ps2xError) {
+    delay(300);
+    ps2xError = ps2x.config_gamepad(PS2_CLK, PS2_CMD, PS2_SEL, PS2_DAT, false, false);
   }
 }
 
-void pressPin(pin* pin){
-  pin->pressed = true;
+void loop() {
+  delay(2);
+  ps2x.read_gamepad();
 
-  switch(pin->port){
-    case PORT_B:
-      DDRB = DDRB | (1 << pin->num);
-      PORTB = PORTB & ~(1 << pin->num);
-      break;
-    case PORT_C:
-      DDRC = DDRC | (1 << pin->num);
-      PORTC = PORTC & ~(1 << pin->num);
-      break;
-    case PORT_D:
-      DDRD = DDRD | (1 << pin->num);
-      PORTD = PORTD & ~(1 << pin->num);
-      break;
-    case PORT_E:
-//      DDRE = DDRE | (1 << pin->num);
-//      PORTE = PORTE & ~(1 << pin->num);
-      break;
-  }
-}
+  updateCurrentMapping();
+  resetPinPressed();
 
-void releasePin(pin* pin){
-  switch(pin->port){
-    case PORT_B:
-      DDRB = DDRB & ~(1 << pin->num);
-      break;
-    case PORT_C:
-      DDRC = DDRC & ~(1 << pin->num);
-      break;
-    case PORT_D:
-      DDRD = DDRD & ~(1 << pin->num);
-      break;
-    case PORT_E:
-//      DDRE = DDRE & ~(1 << pin->num);
-      break;
-  }
+  updateButtons(currentMapping, currentMappingSize);
+  updateLeftAnalog();
+  updateRightAnalog();
+
+  releaseUnusedPins();
 }
