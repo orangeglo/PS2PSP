@@ -52,6 +52,125 @@ pin videoPin = { PORT_D, 6 };
 pin startPin = { PORT_B, 7 };
 pin selectPin = { PORT_D, 5 };
 
+
+// Button Mappings ///////////////////
+#define SECONDARY_MAPPING_COMBO_HOLD_MILLIS 250
+
+typedef struct {
+  pin* pin;
+  unsigned int buttonA;
+  unsigned int buttonB;
+} pinButtonMapping;
+
+typedef struct {
+  unsigned int buttonA;
+  unsigned int buttonB;
+  unsigned long pressedMillis;
+} buttonCombo;
+
+const pinButtonMapping primaryMappings[] = {
+  { &upPin, PSB_PAD_UP },
+  { &downPin, PSB_PAD_DOWN },
+  { &leftPin, PSB_PAD_LEFT },
+  { &rightPin, PSB_PAD_RIGHT },
+  { &leftShoulderPin, PSB_L1, PSB_L2 },
+
+  { &crossPin, PSB_CROSS },
+  { &squarePin, PSB_SQUARE },
+  { &circlePin, PSB_CIRCLE },
+  { &trianglePin, PSB_TRIANGLE },
+  { &rightShoulderPin, PSB_R1, PSB_R2 },
+
+  { &startPin, PSB_START },
+  { &selectPin, PSB_SELECT }
+};
+const byte primaryMappingsSize = sizeof(primaryMappings) / sizeof(pinButtonMapping);
+
+const pinButtonMapping secondaryMappings[] = {
+  { &homePin, PSB_START },
+  { &powerPin, PSB_SELECT },
+  { &videoPin, PSB_TRIANGLE }
+};
+const byte secondaryMappingsSize = sizeof(secondaryMappings) / sizeof(pinButtonMapping);
+
+buttonCombo secondaryMappingCombo = { PSB_L2, PSB_R2 };
+pinButtonMapping *currentMapping = primaryMappings;
+byte currentMappingSize = primaryMappingsSize;
+
+
+// Analog Sticks ////////////////////
+#define STICK_DEADZONE 50
+#define RIGHT_ANALOG_UPDATE_MILLIS 5
+#define RIGHT_ANALOG_CYCLES 3
+#define RIGHT_ANALOG_MODE_COUNT 2
+#define RIGHT_ANALOG_MODE_DISABLED 0
+#define RIGHT_ANALOG_MODE_THRESHOLD 1
+#define RIGHT_ANALOG_MODE_PWM 2
+
+byte rightAnalogMode = 0;
+byte rightAnalogMagnitude;
+double rightAnalogAngle;
+pin *rightAnalogPinA;
+pin *rightAnalogPinB;
+byte rightAnalogFrequency;
+unsigned long rightAnalogLastUpdateMillis = millis();
+byte rightAnalogCurrentCycle = 0;
+
+
+// Setup & Loop //////////////////////////
+
+void setup() {
+  Serial.begin(57600);
+  Wire.begin();
+  centerPot();
+
+  while (ps2xError) {
+    delay(300);
+    ps2xError = ps2x.config_gamepad(PS2_CLK, PS2_CMD, PS2_SEL, PS2_DAT, false, false);
+  }
+}
+
+void loop() {
+  delay(2);
+  ps2x.read_gamepad();
+
+  updateCurrentMapping();
+  resetPinPressed();
+
+//  if (ps2x.NewButtonState()){
+  updateButtons(currentMapping, currentMappingSize);
+  updateLeftAnalog();
+  updateRightAnalog();
+
+  releaseUnusedPins();
+}
+
+// Functions ////////////////////////////
+
+void updateButtons(pinButtonMapping mapping[], byte mappingSize){
+  for (byte i = 0; i < mappingSize; i++){
+    if (ps2x.Button(mapping[i].buttonA) || (mapping[i].buttonB && ps2x.Button(mapping[i].buttonB))) {
+      pressPin(mapping[i].pin);
+    }
+  }
+}
+
+void updateCurrentMapping() {
+  if (ps2x.Button(secondaryMappingCombo.buttonA) && ps2x.Button(secondaryMappingCombo.buttonB)){
+    if (!secondaryMappingCombo.pressedMillis) { secondaryMappingCombo.pressedMillis = millis(); }
+  } else {
+    secondaryMappingCombo.pressedMillis = 0;
+  }
+
+  if (secondaryMappingCombo.pressedMillis && (millis() - secondaryMappingCombo.pressedMillis > SECONDARY_MAPPING_COMBO_HOLD_MILLIS)){
+    currentMapping = secondaryMappings;
+    currentMappingSize = secondaryMappingsSize;
+  } else {
+    currentMapping = primaryMappings;
+    currentMappingSize = primaryMappingsSize;
+  }
+}
+
 void pressPin(pin* pin){
   pin->pressed = true;
 
@@ -106,83 +225,6 @@ void releaseUnusedPins(){
   }
 }
 
-
-// Button Mappings ///////////////////
-#define SECONDARY_MAPPING_COMBO_HOLD_MILLIS 250
-
-pinButtonMapping *currentMapping = primaryMappings;
-byte currentMappingSize = primaryMappingsSize;
-
-typedef struct {
-  pin* pin;
-  unsigned int buttonA;
-  unsigned int buttonB;
-} pinButtonMapping;
-
-typedef struct {
-  unsigned int buttonA;
-  unsigned int buttonB;
-  unsigned long pressedMillis;
-} buttonCombo;
-
-const pinButtonMapping primaryMappings[] = {
-  { &upPin, PSB_PAD_UP },
-  { &downPin, PSB_PAD_DOWN },
-  { &leftPin, PSB_PAD_LEFT },
-  { &rightPin, PSB_PAD_RIGHT },
-  { &leftShoulderPin, PSB_L1, PSB_L2 },
-
-  { &crossPin, PSB_CROSS },
-  { &squarePin, PSB_SQUARE },
-  { &circlePin, PSB_CIRCLE },
-  { &trianglePin, PSB_TRIANGLE },
-  { &rightShoulderPin, PSB_R1, PSB_R2 },
-
-  { &startPin, PSB_START },
-  { &selectPin, PSB_SELECT }
-};
-const byte primaryMappingsSize = sizeof(primaryMappings) / sizeof(pinButtonMapping);
-
-const pinButtonMapping secondaryMappings[] = {
-  { &homePin, PSB_START },
-  { &powerPin, PSB_SELECT },
-  { &videoPin, PSB_TRIANGLE }
-};
-const byte secondaryMappingsSize = sizeof(secondaryMappings) / sizeof(pinButtonMapping);
-
-buttonCombo secondaryMappingCombo = { PSB_L2, PSB_R2 };
-
-void updateButtons(pinButtonMapping mapping[], byte mappingSize){
-  for (byte i = 0; i < mappingSize; i++){
-    if (ps2x.Button(mapping[i].buttonA) || (mapping[i].buttonB && ps2x.Button(mapping[i].buttonB))) {
-      pressPin(mapping[i].pin);
-    }
-  }
-}
-
-void updateCurrentMapping() {
-  if (ps2x.Button(secondaryMappingCombo.buttonA) && ps2x.Button(secondaryMappingCombo.buttonB)){
-    if (!secondaryMappingCombo.pressedMillis) { secondaryMappingCombo.pressedMillis = millis(); }
-  } else {
-    secondaryMappingCombo.pressedMillis = 0;
-  }
-
-  if (secondaryMappingCombo.pressedMillis && (millis() - secondaryMappingCombo.pressedMillis > SECONDARY_MAPPING_COMBO_HOLD_MILLIS)){
-    currentMapping = secondaryMappings;
-    currentMappingSize = secondaryMappingsSize;
-  } else {
-    currentMapping = primaryMappings;
-    currentMappingSize = primaryMappingsSize;
-  }
-}
-
-
-// Analog Sticks ////////////////////
-#define STICK_DEADZONE 45
-
-double rightAnalogAngle;
-byte rightAnalogMode = 0;
-
 int magnitude(int x, int y) {
   return sqrt((pow(x, 2)+pow(y, 2)));
 }
@@ -196,19 +238,56 @@ void updateLeftAnalog(){
 }
 
 void updateRightAnalog(){
-  if (magnitude(ps2x.Analog(PSS_RX) - 127, ps2x.Analog(PSS_RY) - 127) > STICK_DEADZONE){
-    rightAnalogAngle = atan2(ps2x.Analog(PSS_RY) - 127, ps2x.Analog(PSS_RX) - 127);
-    if (rightAnalogAngle < 0) { rightAnalogAngle += 6.2832; }
-
-    if (rightAnalogAngle >= 0.3972 && rightAnalogAngle <= 1.1781){ pressPin(&crossPin); pressPin(&circlePin); } // up right
-    else if (rightAnalogAngle >= 1.1781 && rightAnalogAngle <= 1.9635){ pressPin(&crossPin); } // up
-    else if (rightAnalogAngle >= 1.9635 && rightAnalogAngle <= 2.7489){ pressPin(&crossPin); pressPin(&squarePin); } // up left
-    else if (rightAnalogAngle >= 2.7489 && rightAnalogAngle <= 3.5343){ pressPin(&squarePin); } // left
-    else if (rightAnalogAngle >= 3.5343 && rightAnalogAngle <= 4.3197){ pressPin(&trianglePin); pressPin(&squarePin); } // down left
-    else if (rightAnalogAngle >= 4.3197 && rightAnalogAngle <= 5.1051){ pressPin(&trianglePin); } // down
-    else if (rightAnalogAngle >= 5.1051 && rightAnalogAngle <= 5.8905){ pressPin(&trianglePin); pressPin(&circlePin); } // down right
-    else if (rightAnalogAngle >= 5.8905 || rightAnalogAngle <= 0.3972){ pressPin(&circlePin); } // right
+  if (ps2x.ButtonReleased(PSB_R3)){
+    rightAnalogMode = (rightAnalogMode + 1) % RIGHT_ANALOG_MODE_COUNT;
   }
+  
+  switch(rightAnalogMode){
+    case RIGHT_ANALOG_MODE_THRESHOLD:
+      rightAnalogMagnitude = magnitude(ps2x.Analog(PSS_RX) - 127, ps2x.Analog(PSS_RY) - 127);
+      if (rightAnalogMagnitude > STICK_DEADZONE){
+        rightAnalogAngle = atan2(ps2x.Analog(PSS_RY) - 127, ps2x.Analog(PSS_RX) - 127);
+        if (rightAnalogAngle < 0) { rightAnalogAngle += 6.2832; }
+    
+//        if (rightAnalogAngle >= 0.3972 && rightAnalogAngle <= 1.1781){ pressPin(&crossPin); pressPin(&circlePin); } // up right
+//        else if (rightAnalogAngle >= 1.1781 && rightAnalogAngle <= 1.9635){ pressPin(&crossPin); } // up
+//        else if (rightAnalogAngle >= 1.9635 && rightAnalogAngle <= 2.7489){ pressPin(&crossPin); pressPin(&squarePin); } // up left
+//        else if (rightAnalogAngle >= 2.7489 && rightAnalogAngle <= 3.5343){ pressPin(&squarePin); } // left
+//        else if (rightAnalogAngle >= 3.5343 && rightAnalogAngle <= 4.3197){ pressPin(&trianglePin); pressPin(&squarePin); } // down left
+//        else if (rightAnalogAngle >= 4.3197 && rightAnalogAngle <= 5.1051){ pressPin(&trianglePin); } // down
+//        else if (rightAnalogAngle >= 5.1051 && rightAnalogAngle <= 5.8905){ pressPin(&trianglePin); pressPin(&circlePin); } // down right
+//        else if (rightAnalogAngle >= 5.8905 || rightAnalogAngle <= 0.3972){ pressPin(&circlePin); } // right
+
+        if (rightAnalogAngle >= 0.3972 && rightAnalogAngle <= 1.1781){ setRightAnalogPinsAndFreq(&crossPin, &circlePin, rightAnalogMagnitude); } // up right
+        else if (rightAnalogAngle >= 1.1781 && rightAnalogAngle <= 1.9635){ setRightAnalogPinsAndFreq(&crossPin, 0, rightAnalogMagnitude); } // up
+        else if (rightAnalogAngle >= 1.9635 && rightAnalogAngle <= 2.7489){ setRightAnalogPinsAndFreq(&crossPin, &squarePin, rightAnalogMagnitude); } // up left
+        else if (rightAnalogAngle >= 2.7489 && rightAnalogAngle <= 3.5343){ setRightAnalogPinsAndFreq(&squarePin, 0, rightAnalogMagnitude); } // left
+        else if (rightAnalogAngle >= 3.5343 && rightAnalogAngle <= 4.3197){ setRightAnalogPinsAndFreq(&trianglePin, &squarePin, rightAnalogMagnitude); } // down left
+        else if (rightAnalogAngle >= 4.3197 && rightAnalogAngle <= 5.1051){ setRightAnalogPinsAndFreq(&trianglePin, 0, rightAnalogMagnitude); } // down
+        else if (rightAnalogAngle >= 5.1051 && rightAnalogAngle <= 5.8905){ setRightAnalogPinsAndFreq(&trianglePin, &circlePin, rightAnalogMagnitude); } // down right
+        else if (rightAnalogAngle >= 5.8905 || rightAnalogAngle <= 0.3972){setRightAnalogPinsAndFreq(&circlePin, 0, rightAnalogMagnitude); } // right
+      } else {
+        rightAnalogPinA = 0;
+        rightAnalogPinB = 0;
+        rightAnalogFrequency = 0;
+      }
+
+      if ((millis() - rightAnalogLastUpdateMillis) >= RIGHT_ANALOG_UPDATE_MILLIS) {
+        rightAnalogCurrentCycle = (rightAnalogCurrentCycle + 1) % (RIGHT_ANALOG_CYCLES + 1);
+      }
+
+      if (rightAnalogCurrentCycle <= rightAnalogFrequency){
+        if (rightAnalogPinA) { pressPin(rightAnalogPinA); }
+        if (rightAnalogPinB) { pressPin(rightAnalogPinB); }
+      }
+      break;
+  }
+}
+
+void setRightAnalogPinsAndFreq(pin *pinA, pin *pinB, byte magnitude) {
+  rightAnalogPinA = pinA;
+  rightAnalogPinB = pinB;
+  rightAnalogFrequency = (magnitude - STICK_DEADZONE) * RIGHT_ANALOG_CYCLES / (127 - STICK_DEADZONE);
 }
 
 void setPot(byte x, byte y){
@@ -221,32 +300,4 @@ void setPot(byte x, byte y){
 
 void centerPot(){
   setPot(127, 127);
-}
-
-
-// Setup & Loop //////////////////////////
-
-void setup() {
-//  Serial.begin(57600);
-  Wire.begin();
-  centerPot();
-
-  while (ps2xError) {
-    delay(300);
-    ps2xError = ps2x.config_gamepad(PS2_CLK, PS2_CMD, PS2_SEL, PS2_DAT, false, false);
-  }
-}
-
-void loop() {
-  delay(2);
-  ps2x.read_gamepad();
-
-  updateCurrentMapping();
-  resetPinPressed();
-
-  updateButtons(currentMapping, currentMappingSize);
-  updateLeftAnalog();
-  updateRightAnalog();
-
-  releaseUnusedPins();
 }
