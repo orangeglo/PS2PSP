@@ -34,23 +34,26 @@ typedef struct {
   bool pressed;
 } pin;
 
-pin upPin = { PORT_D, 1 };
-pin downPin = { PORT_D, 2 };
-pin leftPin = { PORT_D, 3 };
-pin rightPin = { PORT_D, 4 };
-pin leftShoulderPin = { PORT_D, 0 };
+pin upPin = { PORT_B, 7 }; //
+pin downPin = { PORT_D, 6 }; //
+pin leftPin = { PORT_D, 5 }; //
+pin rightPin = { PORT_B, 6 }; //
+pin leftShoulderPin = { PORT_E, 1 }; //
 
-pin crossPin = { PORT_B, 1 };
-pin squarePin = { PORT_B, 5 };
-pin circlePin = { PORT_B, 2 };
-pin trianglePin = { PORT_B, 3};
-pin rightShoulderPin = { PORT_B, 4 };
-pin powerPin = { PORT_B, 0 };
+pin crossPin = { PORT_D, 0 }; //
+pin squarePin = { PORT_E, 0 }; //
+pin circlePin = { PORT_D, 1 }; //
+pin trianglePin = { PORT_D, 3}; //
+pin rightShoulderPin = { PORT_D, 4 }; //
+pin powerPin = { PORT_D, 2 }; //
 
-pin homePin = { PORT_D, 7 };
-pin videoPin = { PORT_D, 6 };
-pin startPin = { PORT_B, 7 };
-pin selectPin = { PORT_D, 5 };
+pin homePin = { PORT_B, 5 }; //
+pin volumeDownPin = { PORT_B, 4 }; //
+pin volumeUpPin = { PORT_B, 3 }; //
+pin videoPin = { PORT_B, 2 }; //
+pin eqPin = { PORT_B, 1 }; //
+pin selectPin = { PORT_B, 0 }; //
+pin startPin = { PORT_D, 7 }; //
 
 
 // Button Mappings ///////////////////
@@ -89,7 +92,10 @@ const byte primaryMappingsSize = sizeof(primaryMappings) / sizeof(pinButtonMappi
 const pinButtonMapping secondaryMappings[] = {
   { &homePin, PSB_START },
   { &powerPin, PSB_SELECT },
-  { &videoPin, PSB_TRIANGLE }
+  { &videoPin, PSB_SQUARE },
+  { &volumeUpPin, PSB_PAD_UP },
+  { &volumeDownPin, PSB_PAD_DOWN },
+  { &eqPin, PSB_CIRCLE }
 };
 const byte secondaryMappingsSize = sizeof(secondaryMappings) / sizeof(pinButtonMapping);
 
@@ -100,27 +106,19 @@ byte currentMappingSize = primaryMappingsSize;
 
 // Analog Sticks ////////////////////
 #define STICK_DEADZONE 50
-#define RIGHT_ANALOG_UPDATE_MILLIS 5
-#define RIGHT_ANALOG_CYCLES 3
 #define RIGHT_ANALOG_MODE_COUNT 2
 #define RIGHT_ANALOG_MODE_DISABLED 0
 #define RIGHT_ANALOG_MODE_THRESHOLD 1
-#define RIGHT_ANALOG_MODE_PWM 2
 
 byte rightAnalogMode = 0;
 byte rightAnalogMagnitude;
 double rightAnalogAngle;
-pin *rightAnalogPinA;
-pin *rightAnalogPinB;
-byte rightAnalogFrequency;
-unsigned long rightAnalogLastUpdateMillis = millis();
-byte rightAnalogCurrentCycle = 0;
 
 
 // Setup & Loop //////////////////////////
 
 void setup() {
-  Serial.begin(57600);
+//  Serial.begin(57600);
   Wire.begin();
   centerPot();
 
@@ -137,7 +135,6 @@ void loop() {
   updateCurrentMapping();
   resetPinPressed();
 
-//  if (ps2x.NewButtonState()){
   updateButtons(currentMapping, currentMappingSize);
   updateLeftAnalog();
   updateRightAnalog();
@@ -188,8 +185,8 @@ void pressPin(pin* pin){
       PORTD = PORTD & ~(1 << pin->num);
       break;
     case PORT_E:
-//      DDRE = DDRE | (1 << pin->num);
-//      PORTE = PORTE & ~(1 << pin->num);
+      DDRE = DDRE | (1 << pin->num);
+      PORTE = PORTE & ~(1 << pin->num);
       break;
   }
 }
@@ -206,7 +203,7 @@ void releasePin(pin* pin){
       DDRD = DDRD & ~(1 << pin->num);
       break;
     case PORT_E:
-//      DDRE = DDRE & ~(1 << pin->num);
+      DDRE = DDRE & ~(1 << pin->num);
       break;
   }
 }
@@ -249,55 +246,39 @@ void updateRightAnalog(){
         rightAnalogAngle = atan2(ps2x.Analog(PSS_RY) - 127, ps2x.Analog(PSS_RX) - 127);
         if (rightAnalogAngle < 0) { rightAnalogAngle += 6.2832; }
     
-//        if (rightAnalogAngle >= 0.3972 && rightAnalogAngle <= 1.1781){ pressPin(&crossPin); pressPin(&circlePin); } // up right
-//        else if (rightAnalogAngle >= 1.1781 && rightAnalogAngle <= 1.9635){ pressPin(&crossPin); } // up
-//        else if (rightAnalogAngle >= 1.9635 && rightAnalogAngle <= 2.7489){ pressPin(&crossPin); pressPin(&squarePin); } // up left
-//        else if (rightAnalogAngle >= 2.7489 && rightAnalogAngle <= 3.5343){ pressPin(&squarePin); } // left
-//        else if (rightAnalogAngle >= 3.5343 && rightAnalogAngle <= 4.3197){ pressPin(&trianglePin); pressPin(&squarePin); } // down left
-//        else if (rightAnalogAngle >= 4.3197 && rightAnalogAngle <= 5.1051){ pressPin(&trianglePin); } // down
-//        else if (rightAnalogAngle >= 5.1051 && rightAnalogAngle <= 5.8905){ pressPin(&trianglePin); pressPin(&circlePin); } // down right
-//        else if (rightAnalogAngle >= 5.8905 || rightAnalogAngle <= 0.3972){ pressPin(&circlePin); } // right
-
-        if (rightAnalogAngle >= 0.3972 && rightAnalogAngle <= 1.1781){ setRightAnalogPinsAndFreq(&crossPin, &circlePin, rightAnalogMagnitude); } // up right
-        else if (rightAnalogAngle >= 1.1781 && rightAnalogAngle <= 1.9635){ setRightAnalogPinsAndFreq(&crossPin, 0, rightAnalogMagnitude); } // up
-        else if (rightAnalogAngle >= 1.9635 && rightAnalogAngle <= 2.7489){ setRightAnalogPinsAndFreq(&crossPin, &squarePin, rightAnalogMagnitude); } // up left
-        else if (rightAnalogAngle >= 2.7489 && rightAnalogAngle <= 3.5343){ setRightAnalogPinsAndFreq(&squarePin, 0, rightAnalogMagnitude); } // left
-        else if (rightAnalogAngle >= 3.5343 && rightAnalogAngle <= 4.3197){ setRightAnalogPinsAndFreq(&trianglePin, &squarePin, rightAnalogMagnitude); } // down left
-        else if (rightAnalogAngle >= 4.3197 && rightAnalogAngle <= 5.1051){ setRightAnalogPinsAndFreq(&trianglePin, 0, rightAnalogMagnitude); } // down
-        else if (rightAnalogAngle >= 5.1051 && rightAnalogAngle <= 5.8905){ setRightAnalogPinsAndFreq(&trianglePin, &circlePin, rightAnalogMagnitude); } // down right
-        else if (rightAnalogAngle >= 5.8905 || rightAnalogAngle <= 0.3972){setRightAnalogPinsAndFreq(&circlePin, 0, rightAnalogMagnitude); } // right
-      } else {
-        rightAnalogPinA = 0;
-        rightAnalogPinB = 0;
-        rightAnalogFrequency = 0;
-      }
-
-      if ((millis() - rightAnalogLastUpdateMillis) >= RIGHT_ANALOG_UPDATE_MILLIS) {
-        rightAnalogCurrentCycle = (rightAnalogCurrentCycle + 1) % (RIGHT_ANALOG_CYCLES + 1);
-      }
-
-      if (rightAnalogCurrentCycle <= rightAnalogFrequency){
-        if (rightAnalogPinA) { pressPin(rightAnalogPinA); }
-        if (rightAnalogPinB) { pressPin(rightAnalogPinB); }
+        if (rightAnalogAngle >= 0.3972 && rightAnalogAngle <= 1.1781){ pressPin(&crossPin); pressPin(&circlePin); } // up right
+        else if (rightAnalogAngle >= 1.1781 && rightAnalogAngle <= 1.9635){ pressPin(&crossPin); } // up
+        else if (rightAnalogAngle >= 1.9635 && rightAnalogAngle <= 2.7489){ pressPin(&crossPin); pressPin(&squarePin); } // up left
+        else if (rightAnalogAngle >= 2.7489 && rightAnalogAngle <= 3.5343){ pressPin(&squarePin); } // left
+        else if (rightAnalogAngle >= 3.5343 && rightAnalogAngle <= 4.3197){ pressPin(&trianglePin); pressPin(&squarePin); } // down left
+        else if (rightAnalogAngle >= 4.3197 && rightAnalogAngle <= 5.1051){ pressPin(&trianglePin); } // down
+        else if (rightAnalogAngle >= 5.1051 && rightAnalogAngle <= 5.8905){ pressPin(&trianglePin); pressPin(&circlePin); } // down right
+        else if (rightAnalogAngle >= 5.8905 || rightAnalogAngle <= 0.3972){ pressPin(&circlePin); } // right
       }
       break;
   }
 }
 
-void setRightAnalogPinsAndFreq(pin *pinA, pin *pinB, byte magnitude) {
-  rightAnalogPinA = pinA;
-  rightAnalogPinB = pinB;
-  rightAnalogFrequency = (magnitude - STICK_DEADZONE) * RIGHT_ANALOG_CYCLES / (127 - STICK_DEADZONE);
-}
-
 void setPot(byte x, byte y){
-  Wire.beginTransmission(B0101000);
-  Wire.write(B10101001);
-  Wire.write(0xFF - y);
-  Wire.write(0xFF - x);
+//  Wire.beginTransmission(B0101000);
+//  Wire.write(B10101001);
+//  Wire.write(0xFF - y);
+//  Wire.write(0xFF - x);
+//  Wire.endTransmission();
+
+  Wire.beginTransmission(0);
+  Wire.write(B10000000);
+  Wire.write(y);
+  Wire.write(0);
+  Wire.endTransmission();
+
+  Wire.beginTransmission(0);
+  Wire.write(B10010000);
+  Wire.write(x);
+  Wire.write(0);
   Wire.endTransmission();
 }
 
 void centerPot(){
-  setPot(127, 127);
+  setPot(128, 128);
 }
