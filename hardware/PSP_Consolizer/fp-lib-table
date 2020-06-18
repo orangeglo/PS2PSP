@@ -1,0 +1,6 @@
+(fp_lib_table
+  (lib (name 1-1734592-0)(type KiCad)(uri /Users/evan/Documents/KiCad/1-1734592-0)(options "")(descr ""))
+  (lib (name 1-1734592-4)(type KiCad)(uri /Users/evan/Documents/KiCad/1-1734592-4)(options "")(descr ""))
+  (lib (name MCP4651-103E_ST)(type KiCad)(uri /Users/evan/Documents/KiCad/MCP4651-103E_ST)(options "")(descr ""))
+  (lib (name L102021ML04Q)(type Legacy)(uri /Users/evan/Documents/KiCad/LIB_L102021ML04Q/L102021ML04Q/KiCad/L102021ML04Q.mod)(options "")(descr ""))
+)
